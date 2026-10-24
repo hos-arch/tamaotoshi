@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ころころ玉おとし</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#f3ead8;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+
+/* 支援者メニューを開く丸（子どもからは目立たない位置・濃さ） */
+#gear{position:fixed;top:12px;right:12px;width:44px;height:44px;border:none;border-radius:50%;background:transparent;padding:0;opacity:.2;cursor:pointer;transition:opacity .3s}
+#gear.hold{opacity:.6}
+#gear svg{width:100%;height:100%;display:block}
+
+/* 支援者メニュー */
+#panel{position:fixed;inset:0;background:rgba(40,36,28,.38);display:none;align-items:center;justify-content:center;padding:16px;z-index:10}
+#panel.open{display:flex}
+.sheet{background:#fbf7ee;border-radius:20px;padding:22px 20px;width:100%;max-width:440px;max-height:92vh;overflow:auto;display:flex;flex-direction:column;gap:16px;font-family:'Hiragino Sans','Hiragino Kaku Gothic ProN',system-ui,sans-serif;color:#3a3326;box-shadow:0 8px 24px rgba(0,0,0,.14)}
+.sheet h1{font-size:19px;margin:0;font-weight:700}
+.note{font-size:13px;line-height:1.6;margin:0;color:#6e6552}
+.row{display:flex;flex-direction:column;gap:8px}
+.row h2{font-size:14px;margin:0;color:#5a5040;font-weight:600}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}
+.opt{font:inherit;font-size:16px;min-height:50px;padding:6px 8px;border-radius:12px;border:1.5px solid #cdbf9f;background:#fffdf8;color:#3a3326;cursor:pointer}
+.opt[aria-pressed="true"]{background:#4a6442;border-color:#4a6442;color:#fff}
+.opt.wide{grid-column:1/-1}
+.sheet .close{font:inherit;font-size:16px;min-height:50px;border-radius:12px;border:none;background:#8a8270;color:#fff;cursor:pointer}
+button:focus-visible{outline:3px solid #e0b24a;outline-offset:2px}
+</style>
+</head>
+<body>
+
+<canvas id="stage" aria-label="玉おとしの画面"></canvas>
+
+<button id="gear" aria-label="支援者メニュー（長押し）" title="長押しで支援者メニュー">
+  <svg viewBox="0 0 44 44" aria-hidden="true">
+    <circle cx="13" cy="22" r="3" fill="#3a3326"/>
+    <circle cx="22" cy="22" r="3" fill="#3a3326"/>
+    <circle cx="31" cy="22" r="3" fill="#3a3326"/>
+  </svg>
+</button>
+
+<div id="panel" role="dialog" aria-modal="true" aria-labelledby="ptitle">
+  <div class="sheet">
+    <h1 id="ptitle">支援者メニュー</h1>
+    <p class="note">玉は、光っている玉をタップしたときに落ちます。大人が合図して、子どもと一緒に玉の動きを目で追う使い方を想定しています。子どもの名前や記録は保存しません。</p>
+
+    <div class="row">
+      <h2>おもちゃ</h2>
+      <div class="opts">
+        <button class="opt" data-set="mode" data-v="kugel">クーゲルバーン</button>
+        <button class="opt" data-set="mode" data-v="jumbo">ジャンボ玉落とし</button>
+        <button class="opt" data-set="mode" data-v="alt">こうたい（4つたまると入れかわる）</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <h2>玉の速さ</h2>
+      <div class="opts">
+        <button class="opt" data-set="speed" data-v="slow">ゆっくり</button>
+        <button class="opt" data-set="speed" data-v="normal">ふつう</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <h2>つづけて落とす</h2>
+      <div class="opts">
+        <button class="opt" data-set="auto" data-v="off">オフ（大人が合図）</button>
+        <button class="opt" data-set="auto" data-v="on">オン（自動）</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <h2>音</h2>
+      <div class="opts">
+        <button class="opt" data-set="sound" data-v="on">音：オン</button>
+        <button class="opt" data-set="sound" data-v="off">音：オフ</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="runBtn" class="opt wide">動きをとめる</button>
+      <button id="resetBtn" class="opt wide">はじめからにする（受け皿を空にする）</button>
+    </div>
+
+    <p class="note">玉を落とした回数：<span id="drops">0</span></p>
+    <button id="closeBtn" class="close">閉じる</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('stage'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, paper = null;
+
+function makePaper(){
+  paper = document.createElement('canvas');
+  paper.width = Math.round(W * DPR); paper.height = Math.round(H * DPR);
+  const p = paper.getContext('2d');
+  p.scale(DPR, DPR);
+  for (let i = 0; i < 900; i++){
+    p.fillStyle = Math.random() < 0.5 ? 'rgba(120,96,60,.05)' : 'rgba(255,255,255,.18)';
+    const s = Math.random() * 2.2 + 0.6;
+    p.fillRect(Math.random() * W, Math.random() * H, s, s);
+  }
+}
+
+const S = { mode: 'kugel', speed: 'slow', sound: true, auto: false, running: true, drops: 0 };
+const SPD = () => (S.speed === 'slow' ? 0.8 : 1.15);
+const COLORS = ['#d9573f', '#e8b13a', '#3f86b8', '#5aa469', '#b86a9e'];
+const INK = '#4e4032';
+const NOTES = [523, 587, 659, 784, 880, 1047];
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const jit = i => ((((Math.sin(i * 12.9898) * 43758.5453) % 1) + 1) % 1) * 2 - 1;
+const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+// ---- 音 ----
+let AC = null;
+function tone(freqs, dur = 0.22, type = 'sine', vol = 0.14){
+  if (!S.sound) return;
+  try{
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended') AC.resume();
+    freqs.forEach((f, i) => {
+      const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime + i * 0.09;
+      o.type = type; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(AC.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    });
+  }catch(e){}
+}
+
+// ---- 手描き風の線 ----
+function smoothClosed(pts){
+  const n = pts.length, m0 = mid(pts[n - 1], pts[0]);
+  ctx.beginPath(); ctx.moveTo(m0.x, m0.y);
+  for (let i = 0; i < n; i++){
+    const p = pts[i], q = pts[(i + 1) % n], m = mid(p, q);
+    ctx.quadraticCurveTo(p.x, p.y, m.x, m.y);
+  }
+  ctx.closePath();
+}
+function inkStroke(width = 2.2){
+  ctx.strokeStyle = INK; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.globalAlpha = 0.85; ctx.stroke();
+  ctx.globalAlpha = 0.35;
+  ctx.save(); ctx.translate(1.2, -0.8); ctx.stroke(); ctx.restore();
+  ctx.globalAlpha = 1;
+}
+function blobPts(cx, cy, r, w){
+  const n = w.length, out = [];
+  for (let i = 0; i < n; i++){
+    const a = (i / n) * Math.PI * 2, rr = r * w[i];
+    out.push({ x: cx + Math.cos(a) * rr, y: cy + Math.sin(a) * rr });
+  }
+  return out;
+}
+// 角の丸い、少しゆがんだ長方形
+function rrPts(x, y, w, h, k){
+  const f = (px, py, i) => ({ x: px + jit(k + i) * 1.8, y: py + jit(k + i + 50) * 1.8 });
+  const a = 0.2, b = 0.8;
+  return [
+    f(x + w * a, y, 0), f(x + w * b, y, 1), f(x + w, y, 2), f(x + w, y + h * a, 3),
+    f(x + w, y + h * b, 4), f(x + w, y + h, 5), f(x + w * b, y + h, 6), f(x + w * a, y + h, 7),
+    f(x, y + h, 8), f(x, y + h * b, 9), f(x, y + h * a, 10), f(x, y, 11)
+  ];
+}
+function quad(p0, p1, p2, n = 26){
+  const out = [];
+  for (let i = 0; i <= n; i++){
+    const t = i / n, a = (1 - t) * (1 - t), b = 2 * (1 - t) * t, c = t * t;
+    out.push({ x: a * p0.x + b * p1.x + c * p2.x, y: a * p0.y + b * p1.y + c * p2.y });
+  }
+  return out;
+}
+
+// ---- レール（折れ線）の計算 ----
+function mkRail(pts, color, width){
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  const sorted = [...pts].sort((a, b) => a.x - b.x);
+  return { pts, cum, L: cum[cum.length - 1], sorted, minx: sorted[0].x, maxx: sorted[sorted.length - 1].x, color, width };
+}
+function tangentAt(R, s){
+  s = clamp(s, 0, R.L);
+  for (let i = 1; i < R.pts.length; i++){
+    if (s <= R.cum[i] || i === R.pts.length - 1){
+      const a = R.pts[i - 1], b = R.pts[i], len = (R.cum[i] - R.cum[i - 1]) || 1, t = (s - R.cum[i - 1]) / len;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, tx: (b.x - a.x) / len, ty: (b.y - a.y) / len };
+    }
+  }
+}
+function sAtX(R, x){
+  for (let i = 1; i < R.pts.length; i++){
+    const a = R.pts[i - 1], b = R.pts[i];
+    if ((x >= a.x && x <= b.x) || (x <= a.x && x >= b.x)){
+      const t = (x - a.x) / ((b.x - a.x) || 1);
+      return R.cum[i - 1] + t * (R.cum[i] - R.cum[i - 1]);
+    }
+  }
+  return 0;
+}
+function yAt(R, x){
+  const p = R.sorted;
+  if (x <= p[0].x) return p[0].y;
+  if (x >= p[p.length - 1].x) return p[p.length - 1].y;
+  for (let i = 1; i < p.length; i++){
+    if (x <= p[i].x){
+      const a = p[i - 1], b = p[i], t = (x - a.x) / ((b.x - a.x) || 1);
+      return a.y + (b.y - a.y) * t;
+    }
+  }
+  return p[p.length - 1].y;
+}
+
+// ---- おもちゃの組み立て ----
+let toy = null, toyKind = 'kugel', ball = null, trayBalls = [], colorIdx = 0, landIdx = 0, parts = [];
+
+function buildToy(kind){
+  const Th = H * 0.88, ty = H * 0.06;
+  const Tw = kind === 'kugel' ? Math.min(W * 0.92, Th * 1.3) : Math.min(W * 0.72, Th * 0.68);
+  const tx = (W - Tw) / 2;
+  const X = n => tx + n * Tw, Y = n => ty + n * Th;
+  const P = (nx, ny) => ({ x: X(nx), y: Y(ny) });
+  const r = kind === 'kugel' ? Math.max(22, Tw * 0.036) : Math.max(22, Tw * 0.064);
+  const T = { kind, Tw, Th, tx, ty, r, shapes: [], rails: [], targets: [], deco: [], X, Y };
+
+  if (kind === 'kugel'){
+    const wood = '#d6b887';
+    T.shapes.push({ pts: rrPts(X(0.04), Y(0.03), Tw * 0.05, Th * 0.95, 1), fill: wood });
+    T.shapes.push({ pts: rrPts(X(0.91), Y(0.03), Tw * 0.05, Th * 0.95, 20), fill: wood });
+    T.shapes.push({ pts: rrPts(X(0.04), Y(0.03), Tw * 0.92, Th * 0.045, 40), fill: wood });
+    T.shapes.push({ pts: rrPts(X(0.02), Y(0.95), Tw * 0.96, Th * 0.04, 60), fill: wood });
+    const rw = r * 0.5, col = '#8b5a3a';
+    const R1 = mkRail([P(0.15, 0.19), P(0.82, 0.35)], col, rw);
+    const R2 = mkRail([P(0.87, 0.42), P(0.20, 0.59)], col, rw);
+    const R3 = mkRail([P(0.14, 0.66), P(0.75, 0.80)], col, rw);
+    T.rails = [R1, R2, R3];
+    T.targets = [{ t: 'rail', rail: R1 }, { t: 'rail', rail: R2 }, { t: 'rail', rail: R3 }, { t: 'tray' }];
+    T.startOnRail = true;
+    T.wallMin = X(0.09) + r * 0.9; T.wallMax = X(0.91) - r * 0.9;
+    T.tray = { x0: X(0.57), x1: X(0.91), top: Y(0.87), bot: Y(0.97), floor: Y(0.955), cap: 4 };
+  } else {
+    T.shapes.push({ pts: rrPts(X(0), Y(0), Tw, Th, 5), fill: '#e3c99c', board: true });
+    T.deco = [[0.36, 0.07, 0.04], [0.62, 0.09, 0.035], [0.76, 0.22, 0.045], [0.32, 0.36, 0.04], [0.62, 0.60, 0.045]]
+      .map(([a, b, c]) => ({ x: X(a), y: Y(b), rx: Tw * c, ry: Tw * c * 0.9 }));
+    const rw = r * 0.95, col = '#4f8f86';
+    const C1 = mkRail(quad(P(0.10, 0.16), P(0.52, 0.14), P(0.90, 0.33)), col, rw);
+    const C2 = mkRail(quad(P(0.92, 0.45), P(0.50, 0.44), P(0.12, 0.60)), col, rw);
+    const C3 = mkRail(quad(P(0.92, 0.79), P(0.60, 0.78), P(0.30, 0.90)), col, rw);
+    T.rails = [C1, C2, C3];
+    T.hole = { x: X(0.14), y: Y(0.74), hr: Tw * 0.085, ex: X(0.86), ey: Y(0.69) };
+    T.pipe = rrPts(X(0.78), Y(0.66), Tw * 0.2, Th * 0.07, 80);
+    // 板の裏を通る見えない道（穴 → 出口）
+    T.tunnel = mkRail(quad(P(0.14, 0.74), P(0.47, 0.78), P(0.86, 0.695), 30), '#000', 0);
+    T.targets = [{ t: 'rail', rail: C1 }, { t: 'rail', rail: C2 }, { t: 'hole' }, { t: 'rail', rail: C3 }, { t: 'tray' }];
+    T.startOnRail = false;
+    T.wallMin = X(0) + r * 0.6; T.wallMax = X(1) - r * 0.6;
+    T.tray = { x0: X(0.04), x1: X(0.60), top: Y(0.93), bot: Y(0.99), floor: Y(0.98), cap: 4 };
+  }
+  T.tray.slotW = (T.tray.x1 - T.tray.x0) / T.tray.cap;
+  T.tray.pts = rrPts(T.tray.x0, T.tray.top, T.tray.x1 - T.tray.x0, T.tray.bot - T.tray.top, 100);
+  return T;
+}
+
+function newBall(){
+  const c = COLORS[colorIdx++ % COLORS.length];
+  const w = Array.from({ length: 12 }, () => rnd(0.94, 1.06));
+  const b = { c, w, state: 'held', t: 0, wait: 0, x: 0, y: 0, vx: 0, vy: 0, v: 0, s: 0, rail: null, tIdx: 0, dist: 0, timer: 0,
+    sq: 0, hop: 0, hv: 0, ang: 0, hideDur: 1.8 };
+  const r = toy.r;
+  if (toy.startOnRail){
+    const R = toy.rails[0];
+    b.x = R.pts[0].x + r * 0.4;
+    b.y = yAt(R, b.x) - r * 0.95 - R.width * 0.2;
+  } else {
+    b.x = toy.X(0.16); b.y = toy.Y(0.045);
+  }
+  return b;
+}
+
+function setToy(kind){
+  toyKind = kind;
+  toy = buildToy(kind);
+  trayBalls = [];
+  landIdx = 0;
+  ball = newBall();
+}
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  makePaper();
+  setToy(toyKind);
+}
+window.addEventListener('resize', resize);
+
+// ---- 動き ----
+const G = 0.14, VMAX = 8;
+
+function release(){
+  if (!ball || ball.state !== 'held' || !S.running) return;
+  S.drops++; landIdx = 0;
+  tone([440, 660], 0.15, 'triangle', 0.1);
+  if (toy.startOnRail){
+    ball.rail = toy.rails[0]; ball.s = sAtX(ball.rail, ball.x); ball.v = 0.5; ball.tIdx = 1; ball.state = 'rail';
+  } else {
+    ball.vx = 0; ball.vy = 0.5; ball.tIdx = 0; ball.state = 'fall';
+  }
+}
+
+function railStep(step){
+  const R = ball.rail, r = toy.r;
+  const tg = tangentAt(R, ball.s);
+  ball.v = clamp(ball.v + (tg.ty * G + 0.014) * step, 0.5, VMAX);
+  ball.s += ball.v * step;
+  ball.dist += ball.v * step;
+  if (ball.dist > 44){ ball.dist = 0; tone([300 + landIdx * 40], 0.05, 'triangle', 0.035); }
+  const p = tangentAt(R, ball.s), sg = p.tx >= 0 ? 1 : -1;
+  const off = r * 0.95 + R.width * 0.2;
+  ball.x = p.x + sg * p.ty * off;
+  ball.y = p.y - sg * p.tx * off;
+  // はずみ：着いたあと、ぽよんぽよんと小さく跳ねる
+  ball.hv -= 0.32 * step;
+  ball.hop += ball.hv * step;
+  if (ball.hop <= 0){
+    ball.hop = 0;
+    if (ball.hv < -1.0){ ball.hv = -ball.hv * 0.42; ball.sq = Math.max(ball.sq, 0.2); tone([240, 320], 0.12, 'sine', 0.05); }
+    else ball.hv = 0;
+  }
+  ball.y -= ball.hop;
+  ball.ang = Math.atan2(p.ty, p.tx);
+  if (ball.s >= R.L){
+    const e = tangentAt(R, R.L - 0.01);
+    ball.vx = e.tx * ball.v * 0.55;
+    ball.vy = Math.max(0.2, e.ty * ball.v * 0.55);
+    ball.state = 'fall';
+  }
+}
+
+function fallStep(step){
+  const r = toy.r;
+  ball.vy += 0.32 * step;
+  ball.x += ball.vx * step;
+  ball.y += ball.vy * step;
+  ball.x = clamp(ball.x, toy.wallMin, toy.wallMax);
+  const T = toy.targets[ball.tIdx];
+  if (T.t === 'rail'){
+    const R = T.rail, cx = clamp(ball.x, R.minx, R.maxx);
+    const yr = yAt(R, cx) - r * 0.92 - R.width * 0.2;
+    if (ball.y >= yr && ball.vy > 0){
+      ball.x = cx; ball.y = yr;
+      ball.rail = R; ball.s = sAtX(R, cx); ball.v = Math.max(0.9, ball.vy * 0.22);
+      ball.state = 'rail'; ball.tIdx++;
+      ball.hop = 0; ball.hv = Math.min(4.5, ball.vy * 0.4);
+      ball.sq = clamp(ball.vy * 0.07, 0.15, 0.45);
+      tone([NOTES[Math.min(landIdx, NOTES.length - 1)]], 0.35, 'sine', 0.13);
+      landIdx++;
+      burst(ball.x, ball.y + r * 0.6, 5);
+    }
+  } else if (T.t === 'hole'){
+    const h = toy.hole;
+    if (ball.y >= h.y - r * 0.3){
+      ball.state = 'hidden'; ball.timer = ball.hideDur; ball.tickT = 0; ball.sq = 0.4;
+      ball.x = h.x; ball.y = h.y;
+      tone([330, 262], 0.25, 'sine', 0.09);
+    }
+  } else {
+    const tr = toy.tray, fl = tr.floor - r;
+    const slot = tr.x0 + (trayBalls.length + 0.5) * tr.slotW;
+    ball.x += (slot - ball.x) * 0.05 * step;
+    if (ball.y >= fl){
+      ball.y = fl;
+      if (ball.vy > 1.2){
+        ball.sq = clamp(ball.vy * 0.07, 0.15, 0.45);
+        ball.vy = -ball.vy * 0.45;
+        tone([1047], 0.2, 'triangle', 0.1);
+        tone([200, 300], 0.14, 'sine', 0.06);
+      }
+      else { ball.state = 'rest'; ball.timer = 0.7; tone([1047, 1319, 1568], 0.5, 'sine', 0.12); burst(ball.x, ball.y, 10); }
+    }
+  }
+}
+
+function update(dt){
+  const step = dt * 60 * SPD();
+  if (S.running && ball){
+    ball.sq *= Math.pow(0.9, step);
+    if (ball.state === 'held'){
+      ball.t += dt;
+      if (S.auto){ ball.wait += dt; if (ball.wait > 3.5) release(); }
+    } else if (ball.state === 'rail') railStep(step);
+    else if (ball.state === 'fall') fallStep(step);
+    else if (ball.state === 'hidden'){
+      ball.timer -= dt * SPD(); ball.tickT -= dt;
+      if (ball.tickT <= 0){ ball.tickT = 0.26; tone([260 + Math.random() * 60], 0.05, 'triangle', 0.035); }
+      if (ball.timer <= 0){
+        const h = toy.hole;
+        ball.x = h.ex; ball.y = h.ey; ball.vx = -0.2; ball.vy = 1.0;
+        ball.state = 'fall'; ball.tIdx++;
+        tone([1319, 1760], 0.45, 'sine', 0.13);
+        burst(ball.x, ball.y, 10);
+      }
+    } else if (ball.state === 'rest'){
+      const tr = toy.tray, slot = tr.x0 + (trayBalls.length + 0.5) * tr.slotW;
+      ball.x += (slot - ball.x) * 0.15 * step;
+      ball.timer -= dt;
+      if (ball.timer <= 0){
+        trayBalls.push(ball.c);
+        if (trayBalls.length >= tr.cap){
+          for (let i = 0; i < 4; i++) burst(tr.x0 + (i + 0.5) * tr.slotW, tr.floor - toy.r, 8);
+          tone([523, 659, 784, 1047], 0.4, 'sine', 0.12);
+          if (S.mode === 'alt'){ setToy(toyKind === 'kugel' ? 'jumbo' : 'kugel'); return; }
+          trayBalls = [];
+        }
+        ball = newBall();
+      }
+    }
+  }
+  for (const p of parts){
+    p.x += p.vx * step; p.y += p.vy * step; p.vy += 0.05 * step; p.life -= dt;
+    if (p.life <= 0) p.dead = true;
+  }
+  parts = parts.filter(p => !p.dead);
+}
+
+function burst(x, y, n = 8){
+  for (let i = 0; i < n; i++){
+    const life = rnd(0.5, 0.8);
+    parts.push({ x, y, vx: rnd(-3, 3), vy: rnd(-4, 0.5), r: rnd(3, 6), life, max: life,
+      c: COLORS[Math.floor(Math.random() * COLORS.length)] });
+  }
+}
+
+// ---- 描画 ----
+function drawBackground(){
+  ctx.fillStyle = '#f3ead8';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(190,220,205,.32)';
+  smoothClosed(blobPts(W * 0.10, H * 0.22, Math.min(W, H) * 0.2, [1,0.95,1.05,0.97,1.04,0.93,1,1.02]));
+  ctx.fill();
+  ctx.fillStyle = 'rgba(240,200,150,.25)';
+  smoothClosed(blobPts(W * 0.92, H * 0.80, Math.min(W, H) * 0.16, [1.02,0.94,1,1.06,0.95,1,1.03,0.97]));
+  ctx.fill();
+  if (paper) ctx.drawImage(paper, 0, 0, W, H);
+}
+
+function strokeRail(R){
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  R.pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  ctx.strokeStyle = INK; ctx.globalAlpha = 0.85; ctx.lineWidth = R.width + 4; ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = R.color; ctx.lineWidth = R.width; ctx.stroke();
+  if (toy.kind === 'jumbo'){
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = R.width * 0.3; ctx.stroke();
+  }
+}
+
+// やわらかい玉：つぶれる、のびる、下にやさしい影
+function drawBall(b, r, sx = 1, sy = 1, rot = 0){
+  ctx.save();
+  ctx.translate(b.x, b.y); ctx.rotate(rot); ctx.scale(sx, sy); ctx.translate(-b.x, -b.y);
+  const pts = blobPts(b.x, b.y, r, b.w);
+  smoothClosed(pts);
+  ctx.fillStyle = b.c; ctx.fill();
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = 'rgba(70,35,10,.17)';
+  ctx.beginPath(); ctx.ellipse(b.x + r * 0.1, b.y + r * 0.5, r * 0.95, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  smoothClosed(pts);
+  inkStroke(1.8);
+  ctx.fillStyle = 'rgba(255,250,235,.62)';
+  ctx.beginPath();
+  ctx.ellipse(b.x - r * 0.36, b.y - r * 0.36, r * 0.24, r * 0.13, -0.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// 板の裏を通る玉（うすく透けて見える）
+function drawTunnel(){
+  const Tn = toy.tunnel, r = toy.r;
+  const hidden = ball && ball.state === 'hidden';
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  Tn.pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  ctx.strokeStyle = hidden ? 'rgba(70,50,30,.17)' : 'rgba(70,50,30,.07)';
+  ctx.lineWidth = r * 1.7; ctx.stroke();
+  ctx.setLineDash([2, 12]);
+  ctx.lineDashOffset = hidden ? -performance.now() / 40 : 0;
+  ctx.strokeStyle = hidden ? 'rgba(255,250,235,.7)' : 'rgba(255,250,235,.35)';
+  ctx.lineWidth = 2.4; ctx.stroke();
+  ctx.restore();
+  if (!hidden) return;
+  const prog = clamp(1 - ball.timer / ball.hideDur, 0, 1);
+  const ease = prog < 0.5 ? 2 * prog * prog : 1 - 2 * (1 - prog) * (1 - prog);
+  for (let k = 2; k >= 0; k--){
+    const pp = clamp(ease - k * 0.05, 0, 1);
+    const g = tangentAt(Tn, pp * Tn.L);
+    const wob = Math.sin(pp * Math.PI * 7) * 4;
+    const a = [0.34, 0.2, 0.1][k];
+    ctx.globalAlpha = a;
+    ctx.fillStyle = ball.c;
+    ctx.beginPath(); ctx.arc(g.x, g.y + wob, r * 0.9, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = a * 0.9;
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  // 出口が近づくと、口がぽっと光る
+  if (prog > 0.7){
+    const h = toy.hole;
+    ctx.strokeStyle = 'rgba(255,235,170,' + clamp((prog - 0.7) * 3, 0, 0.8) + ')';
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(h.ex, h.ey, r * (1.2 + 0.15 * Math.sin(performance.now() / 120)), 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+function drawToy(){
+  const r = toy.r;
+  // 床に落ちる影
+  ctx.fillStyle = 'rgba(90,70,40,.12)';
+  ctx.beginPath(); ctx.ellipse(W / 2, toy.ty + toy.Th * 1.0, toy.Tw * 0.5, toy.Th * 0.03, 0, 0, Math.PI * 2); ctx.fill();
+
+  for (const sh of toy.shapes){
+    smoothClosed(sh.pts);
+    ctx.fillStyle = sh.fill; ctx.fill();
+    inkStroke(2.2);
+  }
+  // 木目
+  ctx.strokeStyle = 'rgba(110,80,40,.12)'; ctx.lineWidth = 2;
+  for (const sh of toy.shapes){
+    const xs = sh.pts.map(p => p.x), ys = sh.pts.map(p => p.y);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    if (sh.board){
+      for (let i = 1; i < 6; i++){
+        const x = x0 + (x1 - x0) * i / 6;
+        ctx.beginPath(); ctx.moveTo(x, y0 + 14);
+        ctx.bezierCurveTo(x + 10, y0 + (y1 - y0) * 0.35, x - 10, y0 + (y1 - y0) * 0.65, x + 4, y1 - 14);
+        ctx.stroke();
+      }
+    }
+  }
+  // 飾りの穴（うすく）
+  for (const d of toy.deco){
+    ctx.fillStyle = 'rgba(160,125,80,.35)';
+    ctx.beginPath(); ctx.ellipse(d.x, d.y, d.rx, d.ry, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  // ほんものの穴と出口
+  if (toy.hole){
+    drawTunnel();
+    const h = toy.hole;
+    smoothClosed(toy.pipe); ctx.fillStyle = '#4f8f86'; ctx.fill(); inkStroke(2.2);
+    ctx.fillStyle = INK;
+    ctx.beginPath(); ctx.ellipse(toy.pipe[7].x + 4, (toy.pipe[1].y + toy.pipe[7].y) / 2, toy.Tw * 0.018, toy.Th * 0.025, 0, 0, Math.PI * 2); ctx.fill();
+    smoothClosed(blobPts(h.x, h.y, h.hr, [1,0.96,1.04,0.97,1.03,0.95,1,1.02]));
+    ctx.fillStyle = '#3d3226'; ctx.fill(); inkStroke(2.4);
+    if (ball && ball.state === 'hidden'){
+      ctx.strokeStyle = 'rgba(255,235,170,' + (0.5 + 0.4 * Math.sin(performance.now() / 160)) + ')';
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.arc(h.x, h.y, h.hr + 8, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  // 受け皿
+  const tr = toy.tray;
+  smoothClosed(tr.pts); ctx.fillStyle = '#c79a68'; ctx.fill(); inkStroke(2.2);
+
+  for (const R of toy.rails) strokeRail(R);
+
+  // 受け皿の中の玉
+  trayBalls.forEach((c, i) => {
+    drawBall({ x: tr.x0 + (i + 0.5) * tr.slotW, y: tr.floor - r, c, w: new Array(12).fill(1) }, r);
+  });
+
+  // いまの玉
+  if (ball && ball.state !== 'hidden'){
+    let bx = ball.x, by = ball.y;
+    if (ball.state === 'held'){
+      by += Math.sin(ball.t * 4) * 3;
+      // 光る輪（タップの合図）
+      ctx.save();
+      ctx.setLineDash([9, 8]);
+      ctx.lineDashOffset = -ball.t * 22;
+      ctx.strokeStyle = ball.c; ctx.globalAlpha = 0.6; ctx.lineWidth = 3.5;
+      ctx.beginPath(); ctx.arc(bx, by, r * (1.55 + 0.12 * Math.sin(ball.t * 3.2)), 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+    let sx = 1, sy = 1, rot = 0;
+    if (ball.state === 'held'){
+      sy = 1 + 0.035 * Math.sin(ball.t * 5); sx = 1 / sy;
+    } else if (ball.state === 'fall'){
+      sy = 1 + clamp(ball.vy * 0.02, 0, 0.15); sx = 1 / sy;
+    } else {
+      sx = 1 + ball.sq * 0.5; sy = 1 - ball.sq * 0.5;
+      rot = ball.state === 'rail' ? ball.ang : 0;
+    }
+    drawBall({ x: bx, y: by, c: ball.c, w: ball.w }, r, sx, sy, rot);
+  }
+
+  for (const p of parts){
+    ctx.globalAlpha = Math.max(0, p.life / p.max);
+    ctx.fillStyle = p.c;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  update(dt);
+  drawBackground();
+  drawToy();
+  requestAnimationFrame(frame);
+}
+
+// ---- タップ ----
+cv.addEventListener('pointerdown', e => {
+  if (!AC){ try{ AC = new (window.AudioContext || window.webkitAudioContext)(); }catch(_){} }
+  const x = e.clientX, y = e.clientY;
+  if (ball && ball.state === 'held' && S.running && Math.hypot(x - ball.x, y - ball.y) <= toy.r + 40){
+    release();
+    return;
+  }
+  burst(x, y, 5);
+  tone([784], 0.15, 'sine', 0.07);
+});
+
+// ---- 支援者メニュー（右上の丸を1.2秒長押し／キーボードはEnter） ----
+const gear = $('gear');
+let holdTimer = null;
+function openPanel(){ markOpts(); $('panel').classList.add('open'); $('closeBtn').focus(); }
+function closePanel(){ $('panel').classList.remove('open'); gear.focus(); }
+gear.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  gear.classList.add('hold');
+  holdTimer = setTimeout(() => { gear.classList.remove('hold'); openPanel(); }, 1200);
+});
+['pointerup', 'pointerleave', 'pointercancel'].forEach(ev =>
+  gear.addEventListener(ev, () => { clearTimeout(holdTimer); gear.classList.remove('hold'); })
+);
+gear.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); openPanel(); }
+});
+
+function markOpts(){
+  const cur = { mode: S.mode, speed: S.speed, auto: S.auto ? 'on' : 'off', sound: S.sound ? 'on' : 'off' };
+  document.querySelectorAll('[data-set]').forEach(b => {
+    b.setAttribute('aria-pressed', String(cur[b.dataset.set] === b.dataset.v));
+  });
+  $('runBtn').textContent = S.running ? '動きをとめる' : '動かす';
+  $('drops').textContent = S.drops;
+}
+
+$('panel').addEventListener('click', e => {
+  if (e.target === $('panel')) { closePanel(); return; }
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.set){
+    const k = b.dataset.set, v = b.dataset.v;
+    if (k === 'mode'){ S.mode = v; setToy(v === 'jumbo' ? 'jumbo' : 'kugel'); }
+    if (k === 'speed') S.speed = v;
+    if (k === 'auto') S.auto = v === 'on';
+    if (k === 'sound') S.sound = v === 'on';
+    markOpts();
+  } else if (b.id === 'runBtn'){
+    S.running = !S.running; markOpts();
+  } else if (b.id === 'resetBtn'){
+    setToy(toyKind); markOpts();
+  } else if (b.id === 'closeBtn'){
+    closePanel();
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('panel').classList.contains('open')) closePanel();
+});
+
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
