@@ -108,7 +108,7 @@ function makePaper(){
 
 const S = { mode: 'kugel', speed: 'slow', sound: true, auto: false, running: true, drops: 0 };
 const SPD = () => (S.speed === 'slow' ? 0.8 : 1.15);
-const COLORS = ['#d9573f', '#e8b13a', '#3f86b8', '#5aa469', '#b86a9e'];
+const COLORS = ['#c8775a', '#d9a441', '#7f9f7a', '#7b93a8', '#b98aa0'];
 const INK = '#4e4032';
 const NOTES = [523, 587, 659, 784, 880, 1047];
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -219,7 +219,7 @@ function yAt(R, x){
 }
 
 // ---- おもちゃの組み立て ----
-let toy = null, toyKind = 'kugel', ball = null, trayBalls = [], colorIdx = 0, landIdx = 0, parts = [];
+let toy = null, toyKind = 'kugel', ball = null, trayBalls = [], colorIdx = 0, landIdx = 0, parts = [], spawnN = 0;
 
 function buildToy(kind){
   const Th = H * 0.88, ty = H * 0.06;
@@ -227,51 +227,66 @@ function buildToy(kind){
   const tx = (W - Tw) / 2;
   const X = n => tx + n * Tw, Y = n => ty + n * Th;
   const P = (nx, ny) => ({ x: X(nx), y: Y(ny) });
-  const r = kind === 'kugel' ? Math.max(22, Tw * 0.036) : Math.max(22, Tw * 0.064);
+  const r = kind === 'kugel' ? Math.max(22, Tw * 0.036) : Tw * 0.1;
   const T = { kind, Tw, Th, tx, ty, r, shapes: [], rails: [], targets: [], deco: [], X, Y };
 
   if (kind === 'kugel'){
     const wood = '#d6b887';
-    T.shapes.push({ pts: rrPts(X(0.04), Y(0.03), Tw * 0.05, Th * 0.95, 1), fill: wood });
-    T.shapes.push({ pts: rrPts(X(0.91), Y(0.03), Tw * 0.05, Th * 0.95, 20), fill: wood });
-    T.shapes.push({ pts: rrPts(X(0.04), Y(0.03), Tw * 0.92, Th * 0.045, 40), fill: wood });
-    T.shapes.push({ pts: rrPts(X(0.02), Y(0.95), Tw * 0.96, Th * 0.04, 60), fill: wood });
+    // 木枠：上の板と下の板（左右の柱は drawToy で描く）
+    T.shapes.push({ pts: rrPts(X(0), Y(0.03), Tw, Th * 0.045, 40), fill: wood });
+    T.shapes.push({ pts: rrPts(X(0), Y(0.95), Tw, Th * 0.045, 60), fill: wood });
     const rw = r * 0.5, col = '#8b5a3a';
-    const R1 = mkRail([P(0.15, 0.19), P(0.82, 0.35)], col, rw);
-    const R2 = mkRail([P(0.87, 0.42), P(0.20, 0.59)], col, rw);
-    const R3 = mkRail([P(0.14, 0.66), P(0.75, 0.80)], col, rw);
-    T.rails = [R1, R2, R3];
-    T.targets = [{ t: 'rail', rail: R1 }, { t: 'rail', rail: R2 }, { t: 'rail', rail: R3 }, { t: 'tray' }];
+    // 4段。本物と同じく「上の段は壁の手前で終わり、下の段は壁から始まる」。
+    // 玉は段の端から落ちて、壁ぎわで下の段に乗り、向きを変えて転がる。
+    const R1 = mkRail([P(0.12, 0.19), P(0.80, 0.25)], col, rw);
+    const R2 = mkRail([P(0.955, 0.38), P(0.20, 0.45)], col, rw);
+    const R3 = mkRail([P(0.045, 0.57), P(0.80, 0.64)], col, rw);
+    const R4 = mkRail([P(0.955, 0.75), P(0.32, 0.81)], col, rw);
+    T.rails = [R1, R2, R3, R4];
+    T.targets = [
+      { t: 'rail', rail: R1 }, { t: 'rail', rail: R2 },
+      { t: 'rail', rail: R3 }, { t: 'rail', rail: R4 }, { t: 'tray' }
+    ];
     T.startOnRail = true;
-    T.wallMin = X(0.09) + r * 0.9; T.wallMax = X(0.91) - r * 0.9;
-    T.tray = { x0: X(0.57), x1: X(0.91), top: Y(0.87), bot: Y(0.97), floor: Y(0.955), cap: 4 };
+    // 柱の内側が壁
+    T.wallMin = X(0.045) + r; T.wallMax = X(0.955) - r;
+    // 受け皿は最後の段の下（左下）。下の板の上にのる
+    T.tray = { x0: X(0.08), x1: X(0.44), top: Y(0.86), bot: Y(0.95), floor: Y(0.93), cap: 4 };
   } else {
     T.shapes.push({ pts: rrPts(X(0), Y(0), Tw, Th, 5), fill: '#e3c99c', board: true });
     T.deco = [[0.36, 0.07, 0.04], [0.62, 0.09, 0.035], [0.76, 0.22, 0.045], [0.32, 0.36, 0.04], [0.62, 0.60, 0.045]]
       .map(([a, b, c]) => ({ x: X(a), y: Y(b), rx: Tw * c, ry: Tw * c * 0.9 }));
-    const rw = r * 0.95, col = '#4f8f86';
+    const rw = Tw * 0.04, col = '#4f8f86';
     const C1 = mkRail(quad(P(0.10, 0.16), P(0.52, 0.14), P(0.90, 0.33)), col, rw);
     const C2 = mkRail(quad(P(0.92, 0.45), P(0.50, 0.44), P(0.12, 0.60)), col, rw);
     const C3 = mkRail(quad(P(0.92, 0.79), P(0.60, 0.78), P(0.30, 0.90)), col, rw);
     T.rails = [C1, C2, C3];
-    T.hole = { x: X(0.14), y: Y(0.74), hr: Tw * 0.085, ex: X(0.86), ey: Y(0.69) };
+    T.hole = { x: X(0.14), y: Y(0.74), hr: Tw * 0.14, ex: X(0.86), ey: Y(0.69) };
     T.pipe = rrPts(X(0.78), Y(0.66), Tw * 0.2, Th * 0.07, 80);
     // 板の裏を通る見えない道（穴 → 出口）
     T.tunnel = mkRail(quad(P(0.14, 0.74), P(0.47, 0.78), P(0.86, 0.695), 30), '#000', 0);
     T.targets = [{ t: 'rail', rail: C1 }, { t: 'rail', rail: C2 }, { t: 'hole' }, { t: 'rail', rail: C3 }, { t: 'tray' }];
     T.startOnRail = false;
     T.wallMin = X(0) + r * 0.6; T.wallMax = X(1) - r * 0.6;
-    T.tray = { x0: X(0.04), x1: X(0.60), top: Y(0.93), bot: Y(0.99), floor: Y(0.98), cap: 4 };
+    T.tray = { x0: X(0.04), x1: X(0.90), top: Y(0.90), bot: Y(0.99), floor: Y(0.975), cap: 3 };
   }
   T.tray.slotW = (T.tray.x1 - T.tray.x0) / T.tray.cap;
   T.tray.pts = rrPts(T.tray.x0, T.tray.top, T.tray.x1 - T.tray.x0, T.tray.bot - T.tray.top, 100);
   return T;
 }
 
+function ballR(){ return toy.r * ((ball && ball.sc) || 1); }
+
 function newBall(){
   const c = COLORS[colorIdx++ % COLORS.length];
   const w = Array.from({ length: 12 }, () => rnd(0.94, 1.06));
-  const b = { c, w, state: 'held', t: 0, wait: 0, x: 0, y: 0, vx: 0, vy: 0, v: 0, s: 0, rail: null, tIdx: 0, dist: 0, timer: 0,
+  // 時々、大きい玉（ドーン）とガラガラ鳴る玉を混ぜて、飽きないようにする
+  spawnN++;
+  const kind = spawnN % 5 === 0 ? 'big' : (spawnN % 7 === 0 ? 'rattle' : 'normal');
+  const FACES = ['bear', 'cat', 'bunny'];
+  const face = FACES[(spawnN - 1) % 3];
+  const b = { c, w, kind, face, sc: kind === 'big' && toy.kind !== 'jumbo' ? 1.3 : 1, spin: 0, rt: 0, blink: rnd(2, 4), bl: 0,
+    state: 'held', t: 0, wait: 0, x: 0, y: 0, vx: 0, vy: 0, v: 0, s: 0, rail: null, tIdx: 0, dist: 0, timer: 0,
     sq: 0, hop: 0, hv: 0, ang: 0, hideDur: 1.8 };
   const r = toy.r;
   if (toy.startOnRail){
@@ -317,11 +332,13 @@ function release(){
 }
 
 function railStep(step){
-  const R = ball.rail, r = toy.r;
+  const R = ball.rail, r = ballR();
   const tg = tangentAt(R, ball.s);
   ball.v = clamp(ball.v + (tg.ty * G + 0.014) * step, 0.5, VMAX);
   ball.s += ball.v * step;
   ball.dist += ball.v * step;
+  // 回転は「横にどれだけ進んだか」で決める（右へ進めば右回り、左へ進めば左回り）
+  ball.spin += tg.tx * ball.v * step / r;
   if (ball.dist > 44){ ball.dist = 0; tone([300 + landIdx * 40], 0.05, 'triangle', 0.035); }
   const p = tangentAt(R, ball.s), sg = p.tx >= 0 ? 1 : -1;
   const off = r * 0.95 + R.width * 0.2;
@@ -346,11 +363,19 @@ function railStep(step){
 }
 
 function fallStep(step){
-  const r = toy.r;
+  const r = ballR();
   ball.vy += 0.32 * step;
   ball.x += ball.vx * step;
+  ball.spin += ball.vx * step / r;
   ball.y += ball.vy * step;
-  ball.x = clamp(ball.x, toy.wallMin, toy.wallMax);
+  // 壁に当たったら、やわらかく跳ね返る（ぴたっと止めない）
+  if (ball.x < toy.wallMin){
+    ball.x = toy.wallMin;
+    if (ball.vx < 0){ ball.vx = -ball.vx * 0.35; ball.sq = Math.max(ball.sq, 0.15); if (ball.vx > 0.4) tone([392], 0.12, 'sine', 0.05); }
+  } else if (ball.x > toy.wallMax){
+    ball.x = toy.wallMax;
+    if (ball.vx > 0){ ball.vx = -ball.vx * 0.35; ball.sq = Math.max(ball.sq, 0.15); if (ball.vx < -0.4) tone([392], 0.12, 'sine', 0.05); }
+  }
   const T = toy.targets[ball.tIdx];
   if (T.t === 'rail'){
     const R = T.rail, cx = clamp(ball.x, R.minx, R.maxx);
@@ -361,7 +386,7 @@ function fallStep(step){
       ball.state = 'rail'; ball.tIdx++;
       ball.hop = 0; ball.hv = Math.min(4.5, ball.vy * 0.4);
       ball.sq = clamp(ball.vy * 0.07, 0.15, 0.45);
-      tone([NOTES[Math.min(landIdx, NOTES.length - 1)]], 0.35, 'sine', 0.13);
+      tone([ball.kind === 'big' ? 196 : NOTES[Math.min(landIdx, NOTES.length - 1)]], 0.5, 'sine', 0.16);
       landIdx++;
       burst(ball.x, ball.y + r * 0.6, 5);
     }
@@ -393,6 +418,15 @@ function update(dt){
   const step = dt * 60 * SPD();
   if (S.running && ball){
     ball.sq *= Math.pow(0.9, step);
+    // まばたき
+    ball.blink -= dt;
+    if (ball.blink <= 0){ ball.bl = 0.13; ball.blink = rnd(2.5, 4.5); }
+    if (ball.bl > 0) ball.bl -= dt;
+    // ガラガラ玉：転がっている間、ガラガラと鳴る
+    if (ball.kind === 'rattle' && (ball.state === 'rail' || ball.state === 'fall')){
+      ball.rt -= dt;
+      if (ball.rt <= 0){ ball.rt = 0.11; tone([780 + Math.random() * 240], 0.09, 'sine', 0.05); }
+    }
     if (ball.state === 'held'){
       ball.t += dt;
       if (S.auto){ ball.wait += dt; if (ball.wait > 3.5) release(); }
@@ -413,7 +447,7 @@ function update(dt){
       ball.x += (slot - ball.x) * 0.15 * step;
       ball.timer -= dt;
       if (ball.timer <= 0){
-        trayBalls.push(ball.c);
+        trayBalls.push({ c: ball.c, w: ball.w, face: ball.face, kind: ball.kind, sc: ball.sc, spin: ball.spin });
         if (trayBalls.length >= tr.cap){
           for (let i = 0; i < 4; i++) burst(tr.x0 + (i + 0.5) * tr.slotW, tr.floor - toy.r, 8);
           tone([523, 659, 784, 1047], 0.4, 'sine', 0.12);
@@ -441,14 +475,8 @@ function burst(x, y, n = 8){
 
 // ---- 描画 ----
 function drawBackground(){
-  ctx.fillStyle = '#f3ead8';
+  ctx.fillStyle = '#f2ebdb';
   ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(190,220,205,.32)';
-  smoothClosed(blobPts(W * 0.10, H * 0.22, Math.min(W, H) * 0.2, [1,0.95,1.05,0.97,1.04,0.93,1,1.02]));
-  ctx.fill();
-  ctx.fillStyle = 'rgba(240,200,150,.25)';
-  smoothClosed(blobPts(W * 0.92, H * 0.80, Math.min(W, H) * 0.16, [1.02,0.94,1,1.06,0.95,1,1.03,0.97]));
-  ctx.fill();
   if (paper) ctx.drawImage(paper, 0, 0, W, H);
 }
 
@@ -462,25 +490,99 @@ function strokeRail(R){
   if (toy.kind === 'jumbo'){
     ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = R.width * 0.3; ctx.stroke();
   }
+  // スロープの両端は、木の栓で留めたように見せる
+  if (toy.kind === 'kugel'){
+    [R.pts[0], R.pts[R.pts.length - 1]].forEach(p => {
+      ctx.beginPath(); ctx.arc(p.x, p.y, R.width * 0.8, 0, Math.PI * 2);
+      ctx.fillStyle = '#6e4527'; ctx.fill(); inkStroke(1.6);
+    });
+  }
 }
 
-// やわらかい玉：つぶれる、のびる、下にやさしい影
+// 耳（体の後ろ。中心からの相対座標）
+function drawEars(face, r, c){
+  const fillEar = (path) => { ctx.beginPath(); path(); ctx.fillStyle = c; ctx.fill(); ctx.strokeStyle = INK; ctx.lineWidth = 1.8; ctx.stroke(); };
+  if (face === 'bear'){
+    [-0.66, 0.66].forEach(x => fillEar(() => ctx.arc(x * r, -0.62 * r, 0.26 * r, 0, Math.PI * 2)));
+  } else if (face === 'cat'){
+    [-1, 1].forEach(s => fillEar(() => {
+      ctx.moveTo(s * 0.72 * r, -0.12 * r); ctx.lineTo(s * 0.5 * r, -0.98 * r); ctx.lineTo(s * 0.12 * r, -0.6 * r); ctx.closePath();
+    }));
+  } else if (face === 'bunny'){
+    [-0.24, 0.24].forEach(x => {
+      fillEar(() => ctx.ellipse(x * r, -0.98 * r, 0.14 * r, 0.42 * r, 0, 0, Math.PI * 2));
+      ctx.fillStyle = 'rgba(232,160,150,.55)';
+      ctx.beginPath(); ctx.ellipse(x * r, -0.98 * r, 0.07 * r, 0.3 * r, 0, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+}
+
+// 顔（目・ほっぺ・口。まばたきつき）
+function drawFace(face, r, blinking){
+  const eyeY = -0.1 * r;
+  ctx.fillStyle = INK;
+  [-0.34, 0.34].forEach(s => {
+    const x = s * r;
+    if (blinking){
+      ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x - 0.1 * r, eyeY); ctx.lineTo(x + 0.1 * r, eyeY); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.ellipse(x, eyeY, 0.085 * r, 0.1 * r, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      ctx.beginPath(); ctx.arc(x + 0.03 * r, eyeY - 0.035 * r, 0.028 * r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = INK;
+    }
+  });
+  ctx.fillStyle = 'rgba(214,120,96,.32)';
+  [-0.55, 0.55].forEach(s => { ctx.beginPath(); ctx.ellipse(s * r, 0.2 * r, 0.13 * r, 0.08 * r, 0, 0, Math.PI * 2); ctx.fill(); });
+  ctx.strokeStyle = INK; ctx.lineWidth = 1.7; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(0, 0.14 * r, 0.13 * r, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+  if (face === 'cat'){
+    ctx.fillStyle = INK;
+    ctx.beginPath(); ctx.moveTo(-0.05 * r, 0.02 * r); ctx.lineTo(0.05 * r, 0.02 * r); ctx.lineTo(0, 0.08 * r); ctx.closePath(); ctx.fill();
+  }
+}
+
+// ガラガラ玉：まわりに鈴がついている
+function drawBells(r){
+  ctx.fillStyle = '#e0b04a'; ctx.strokeStyle = INK; ctx.lineWidth = 1.4;
+  for (let i = 0; i < 4; i++){
+    const a = i * Math.PI / 2 + Math.PI / 4;
+    ctx.beginPath(); ctx.arc(Math.cos(a) * r * 1.02, Math.sin(a) * r * 1.02, 0.15 * r, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+  }
+}
+
+// 動物の顔つきの、やわらかい玉。転がると顔も一緒に回る
 function drawBall(b, r, sx = 1, sy = 1, rot = 0){
+  const face = b.face || 'bear';
+  const pts = blobPts(b.x, b.y, r, b.w);
   ctx.save();
   ctx.translate(b.x, b.y); ctx.rotate(rot); ctx.scale(sx, sy); ctx.translate(-b.x, -b.y);
-  const pts = blobPts(b.x, b.y, r, b.w);
+  // 耳（体の後ろ）
+  ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.spin || 0);
+  drawEars(face, r, b.c);
+  ctx.restore();
+  // 体
   smoothClosed(pts);
   ctx.fillStyle = b.c; ctx.fill();
-  ctx.save();
-  ctx.clip();
-  ctx.fillStyle = 'rgba(70,35,10,.17)';
+  // 足元の影
+  ctx.save(); ctx.clip();
+  ctx.fillStyle = 'rgba(70,35,10,.16)';
   ctx.beginPath(); ctx.ellipse(b.x + r * 0.1, b.y + r * 0.5, r * 0.95, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
+  // 顔と鈴（回転する）
+  ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.spin || 0);
+  drawFace(face, r, (b.bl || 0) > 0);
+  if (b.kind === 'rattle') drawBells(r);
+  ctx.restore();
+  // 輪郭
   smoothClosed(pts);
   inkStroke(1.8);
-  ctx.fillStyle = 'rgba(255,250,235,.62)';
+  // ひかり（一か所だけ）
+  ctx.fillStyle = 'rgba(255,250,235,.55)';
   ctx.beginPath();
-  ctx.ellipse(b.x - r * 0.36, b.y - r * 0.36, r * 0.24, r * 0.13, -0.6, 0, Math.PI * 2);
+  ctx.ellipse(b.x - r * 0.42, b.y - r * 0.5, r * 0.18, r * 0.09, -0.6, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
@@ -530,6 +632,17 @@ function drawToy(){
   ctx.fillStyle = 'rgba(90,70,40,.12)';
   ctx.beginPath(); ctx.ellipse(W / 2, toy.ty + toy.Th * 1.0, toy.Tw * 0.5, toy.Th * 0.03, 0, 0, Math.PI * 2); ctx.fill();
 
+  // 横の枠：左右の木の柱（上と下の板につながる。内側が玉の壁）
+  if (toy.kind === 'kugel'){
+    const pw = toy.Tw * 0.045;
+    const top = toy.Y(0.03), bot = toy.Y(0.995);
+    [toy.X(0), toy.X(1) - pw].forEach((x, k) => {
+      smoothClosed(rrPts(x, top, pw, bot - top, 200 + k * 30));
+      ctx.fillStyle = '#d6b887'; ctx.fill(); inkStroke(2.2);
+      ctx.strokeStyle = 'rgba(110,80,40,.14)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x + pw * 0.35, top + 12); ctx.lineTo(x + pw * 0.35, bot - 12); ctx.stroke();
+    });
+  }
   for (const sh of toy.shapes){
     smoothClosed(sh.pts);
     ctx.fillStyle = sh.fill; ctx.fill();
@@ -571,13 +684,14 @@ function drawToy(){
   }
   // 受け皿
   const tr = toy.tray;
-  smoothClosed(tr.pts); ctx.fillStyle = '#c79a68'; ctx.fill(); inkStroke(2.2);
+  smoothClosed(tr.pts); ctx.fillStyle = '#cfae7e'; ctx.fill(); inkStroke(2.2);
 
   for (const R of toy.rails) strokeRail(R);
 
   // 受け皿の中の玉
-  trayBalls.forEach((c, i) => {
-    drawBall({ x: tr.x0 + (i + 0.5) * tr.slotW, y: tr.floor - r, c, w: new Array(12).fill(1) }, r);
+  trayBalls.forEach((tb, i) => {
+    const rr = r * tb.sc;
+    drawBall({ x: tr.x0 + (i + 0.5) * tr.slotW, y: tr.floor - rr, c: tb.c, w: tb.w, face: tb.face, kind: tb.kind, spin: tb.spin, bl: 0 }, rr);
   });
 
   // いまの玉
@@ -602,7 +716,7 @@ function drawToy(){
       sx = 1 + ball.sq * 0.5; sy = 1 - ball.sq * 0.5;
       rot = ball.state === 'rail' ? ball.ang : 0;
     }
-    drawBall({ x: bx, y: by, c: ball.c, w: ball.w }, r, sx, sy, rot);
+    drawBall({ x: bx, y: by, c: ball.c, w: ball.w, face: ball.face, kind: ball.kind, spin: ball.spin, bl: ball.bl }, ballR(), sx, sy, rot);
   }
 
   for (const p of parts){
